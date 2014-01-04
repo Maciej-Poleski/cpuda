@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import sys
 
-from src.compiler.parser import Parser
+from parser import Parser
 
 
 class ObjectInfo(object):

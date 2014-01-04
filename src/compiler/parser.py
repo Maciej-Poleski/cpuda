@@ -9,7 +9,7 @@ class Parser(object):
         result = ('extern "C"\n'
                   '{\n'
                   '\n'
-                  '__device__ int fun1(int* argIntStar, float argFloat)\n'
+                  'int fun1(int* argIntStar, float argFloat)\n'
                   '{\n'
         )
         result += self.m('fun1', 'tab', 'int[123]')
@@ -23,7 +23,7 @@ class Parser(object):
                    '    return 10;\n'
                    '}\n'
                    '\n'
-                   '__global__ void fun2(char* argCharStar,int argInt)\n'
+                   'void fun2(char* argCharStar,int argInt)\n'
                    '{\n'
         )
         result += self.m('fun2', 'tab', 'char[12]')
@@ -40,7 +40,7 @@ class Parser(object):
                    '}'
         )
 
-        self.k('kern1', ('int*', 'int*', 'char'))
-        self.k('kern2', ('int', 'char*'))
+        self.k('fun1', ('int*', 'float'))
+        self.k('fun2', ('char*', 'int'))
 
         return result
