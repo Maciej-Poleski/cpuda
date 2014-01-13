@@ -2,7 +2,7 @@
 import sys
 
 from parser import Parser
-
+import subprocess
 
 class ObjectInfo(object):
     def __init__(self, name, type):
@@ -104,4 +104,17 @@ for fun in kernels:
              '}}\n'
              '\n').format(name=fun)
 
-print(code)
+ccFileName=sys.argv[1]+'.cc'
+
+with open(ccFileName,mode='w') as f:
+    print(code,file=f)
+
+ptxFileName=None
+
+if sys.argv[1].endswith('.cu'):
+    ptxFileName=sys.argv[1][:-3]+'.ptx'
+else:
+    ptxFileName=sys.argv[1]+'.ptx'
+
+with open(ccFileName) as f:
+    subprocess.check_call(['g++','-std=c++11','-O3','-Wall','-march=native','-shared','-fPIC','-xc++','-pipe','-o'+ptxFileName,'-'],stdin=f)
