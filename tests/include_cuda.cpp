@@ -2,7 +2,6 @@
 #include "cuda.h"
 
 int main(){
-    printf("Hello world!\n");
-    cuda_say_hello();
+    printf("Hello world! - include cuda.h worked!\n");
     return 0;
 }
