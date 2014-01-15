@@ -99,6 +99,7 @@ struct dim3{
         return x * y * z;
     }
 };
+struct CUdevice_st;
 
 // ------ configuration ------
 
@@ -109,22 +110,30 @@ const dim_t MAX_THREADS_PER_BLOCK = 1024;
 
 // ------ structures ------
 
-std::mutex mtx;           // mutex for critical section
+std::mutex printf_mutex;           // mutex for critical section
 
 void testKernel(void **args, const dim3 &gridDim, const dim3 &blockDim, const dim3 &blockIdx, const dim3 &threadIdx){
-    mtx.lock();
+    printf_mutex.lock();
     printf("CpUDA: #(%d,%d,%d) in block #(%d,%d,%d)\n",
            threadIdx.x, threadIdx.y, threadIdx.z, blockIdx.x, blockIdx.y, blockIdx.z);
-    mtx.unlock();
+    printf_mutex.unlock();
 }
+
+void internalKernelLaunch(CUdevice_st *device, CUfunction f, void **args);
+
 struct CUdevice_st{ // additional structure for object representing device
+
+    std::thread deviceThread;
+    dim3 gridDim;
+    dim3 blockDim;
+    std::vector<dim3> blocks;
 
     CUdevice_st(){
         printf("Device structure created!\n");
     }
 
     // simulate threads in block - run concurrently all threads
-    void launchBlock(CUfunction f, void **args, const dim3 &gridDim, const dim3 &blockDim, const dim3 &blockIdx){
+    void launchBlock(CUfunction f, void **args, const dim3 &blockIdx){
         std::vector<std::thread> threads;
         for(int tz = 0; tz < blockDim.z; tz++) for(int ty = 0; ty < blockDim.y; ty++) for(int tx = 0; tx < blockDim.x; tx++){
             threads.push_back(std::thread(testKernel, args, gridDim, blockDim, blockIdx, dim3(tx,ty,tz)));
@@ -147,32 +156,54 @@ struct CUdevice_st{ // additional structure for object representing device
         return checkDimensionsInRange(blockDim, MAX_BLOCK_DIMENSIONS) && blockDim.totalSize() <= MAX_THREADS_PER_BLOCK;
     }
 
-    CUresult launchKernel(CUfunction f, void **args, dim3 gridDim, dim3 blockDim){
+    bool isDeviceRunning(){
+        return deviceThread.joinable();
+    }
+
+    CUresult prepareDeviceToLaunch(dim3 gridDim, dim3 blockDim){
+        if(isDeviceRunning()) // currently we do not support concurrent kernels execution
+            return CUDA_ERROR_LAUNCH_FAILED;
         if(!checkGridSize(gridDim) || !checkBlockSize(gridDim))
             return CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES;
-        const dim_t gridSize = gridDim.totalSize();
-        std::vector<dim3> blocks(gridSize);
-
+        this->gridDim = gridDim;
+        this->blockDim = blockDim;
         // initialize blocks id
-        int curBlock = 0;
+        blocks.clear();
         for(int bz = 0; bz < gridDim.z; bz++) for(int by = 0; by < gridDim.y; by++) for(int bx = 0; bx < gridDim.x; bx++){
-            blocks[curBlock] = dim3(bx,by,bz);
-            curBlock++;
+            blocks.push_back(dim3(bx,by,bz));
         }
-        // simulate blocks in synchronous way
-        for(int i=0; i<gridSize; i++){
-            launchBlock(f, args, gridDim, blockDim, blocks[i]);
-        }
-
         return CUDA_SUCCESS;
+    }
+
+    CUresult launchKernel(CUfunction f, void **args){
+        deviceThread = std::thread(internalKernelLaunch, this, f, args);
+    }
+
+    void runKernel(CUfunction f, void **args){
+        for(int i=0; i<blocks.size(); i++){ // run blocks in synchronous way
+            launchBlock(f, args, blocks[i]);
+        }
     }
 };
 
+void internalKernelLaunch(CUdevice_st *device, CUfunction f, void **args){
+    device->runKernel(f, args);
+}
+
 struct CUctx_st{
     CUdevice dev;
+    std::thread *task;
 
     CUctx_st(CUdevice device): dev(device){
         printf("created context with device set to %d\n", dev);
+        task == nullptr;
+    }
+    bool isTaskRunning(){
+        return (task != nullptr) && task->joinable();
+    }
+    void waitForTask(){
+        if(isTaskRunning())
+            task->join();
     }
     ~CUctx_st(){
         printf("destroying context of device %d\n", dev);
@@ -310,8 +341,9 @@ CUresult cuCtxSynchronize(){ // synchronization
         return CUDA_ERROR_NOT_INITIALIZED;
     if(contexts.empty())
         return CUDA_ERROR_INVALID_CONTEXT; // no context to pop
-    printf("wait until context task will be finished\n");
-    printf("...TO DO...!\n");
+    printf_mutex.lock(); printf("wait until context task will be finished\n"); printf_mutex.unlock();
+    contexts.top()->waitForTask();
+    printf("done\n");
     // TODO !!! !!! !!!
 	return CUDA_SUCCESS;
 }
@@ -423,11 +455,18 @@ CUresult cuLaunchKernel(CUfunction f,
         return CUDA_ERROR_INVALID_CONTEXT;
     if(kernelParams != nullptr && extra != nullptr)
         return CUDA_ERROR_INVALID_VALUE;
+
     // check somewhere handle (f)
-    printf("try to launch KERNEL on device...\n");
-    return devices[contexts.top()->dev].launchKernel(f, kernelParams,
-                                                     dim3(gridDimX,gridDimY,gridDimZ),
-                                                     dim3(blockDimX,blockDimY,blockDimZ));
+    CUcontext ctx = contexts.top();
+    CUdevice_st &dev = devices[ctx->dev];
+
+    CUresult res = dev.prepareDeviceToLaunch(dim3(gridDimX,gridDimY,gridDimZ), dim3(blockDimX,blockDimY,blockDimZ));
+    if(res == CUDA_SUCCESS){
+        printf("launching KERNEL in device!\n");
+        dev.launchKernel(f, kernelParams);
+        ctx->task = &dev.deviceThread;
+    }
+    return res;
 }
 
 #endif /* CPUDA_CUDA_H */
