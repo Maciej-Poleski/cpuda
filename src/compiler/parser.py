@@ -34,6 +34,8 @@ class Parser(object):
         result += self.m('fun2', 'w', 'int[2]')
         result += self.m('fun2', 'e', 'int*')
 
+        result += 'argCharStar[threadIdx.x]=5;\n'
+
         result += ('\n'
                    '}\n'
                    '\n'

@@ -14,6 +14,7 @@ __global__ void fun2(char* argCharStar,int argInt)
 {
     __shared__ char tab[12],a,b,*c;
     __shared__ int q,w[2],*e;
+    argCharStar[threadIdx.x]=5;
 }
 
 }
