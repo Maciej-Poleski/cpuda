@@ -3,8 +3,10 @@
 
 #include <cstdio>   // printf
 #include <cstring>   // memcpy
-#include <stack>   // stack
-#include <vector>   // stack
+#include <stack>
+#include <vector>
+#include <thread>
+#include <mutex>
 #include <stdlib.h> // this allows to use exit function in code, also size_t in library
 #include "cuda_result.h" // file with CUresult and it's values definition
 
@@ -88,40 +90,67 @@ CUresult cuLaunchKernel(CUfunction f,
 
 // ------------ temporary implementation ------------
 
-// ------ configuration ------
-
-const int NUMBER_OF_DEVICES = 1;
-
-// ------ structures ------
-
 typedef unsigned int dim_t;
 struct dim3{
     dim_t x; dim_t y; dim_t z;
     dim3():                     x(0), y(0), z(0){}
     dim3(dim_t x, dim_t y, dim_t z):  x(x), y(y), z(z){}
+    dim_t totalSize() const { // unsigned long long ?
+        return x * y * z;
+    }
 };
 
+// ------ configuration ------
+
+const int NUMBER_OF_DEVICES = 1;
+const dim3 MAX_GRID_DIMENSIONS(32,32,32);
+const dim3 MAX_BLOCK_DIMENSIONS(1024,1024,64);
+const dim_t MAX_THREADS_PER_BLOCK = 1024;
+
+// ------ structures ------
+
+std::mutex mtx;           // mutex for critical section
+
+void testKernel(void **args, const dim3 &gridDim, const dim3 &blockDim, const dim3 &blockIdx, const dim3 &threadIdx){
+    mtx.lock();
+    printf("CpUDA: #(%d,%d,%d) in block #(%d,%d,%d)\n",
+           threadIdx.x, threadIdx.y, threadIdx.z, blockIdx.x, blockIdx.y, blockIdx.z);
+    mtx.unlock();
+}
 struct CUdevice_st{ // additional structure for object representing device
 
     CUdevice_st(){
         printf("Device structure created!\n");
     }
 
-    // simulate threads in block in synchronous way
-    CUresult launchThread(CUfunction f, void **args, const dim3 &gridDim, const dim3 &blockDim, const dim3 &blockIdx, const dim3 &threadIdx){
-        printf("CpUDA: simulating thread: #(%d,%d,%d) in block #(%d,%d,%d)\n",
-               threadIdx.x, threadIdx.y, threadIdx.z, blockIdx.x, blockIdx.y, blockIdx.z);
+    // simulate threads in block - run concurrently all threads
+    void launchBlock(CUfunction f, void **args, const dim3 &gridDim, const dim3 &blockDim, const dim3 &blockIdx){
+        std::vector<std::thread> threads;
+        for(int tz = 0; tz < blockDim.z; tz++) for(int ty = 0; ty < blockDim.y; ty++) for(int tx = 0; tx < blockDim.x; tx++){
+            threads.push_back(std::thread(testKernel, args, gridDim, blockDim, blockIdx, dim3(tx,ty,tz)));
+        }
+        for (auto &t : threads) { // wait until this block will finish
+            t.join();
+        }
+        printf("\n");
     }
 
-    // simulate threads in block in synchronous way
-    CUresult launchBlock(CUfunction f, void **args, const dim3 &gridDim, const dim3 &blockDim, const dim3 &blockIdx){
-        for(int tz = 0; tz < blockDim.z; tz++) for(int ty = 0; ty < blockDim.y; ty++) for(int tx = 0; tx < blockDim.x; tx++){
-            launchThread(f, args, gridDim, blockDim, blockIdx, dim3(tx,ty,tz));
-        }
+    bool checkDimensionsInRange(const dim3 &dim, const dim3 &range){
+        return (dim.x < range.x) && (dim.y < range.y) && (dim.z < range.z);
+    }
+
+    bool checkGridSize(const dim3 &gridDim){
+        return checkDimensionsInRange(gridDim, MAX_GRID_DIMENSIONS);
+    }
+
+    bool checkBlockSize(const dim3 &blockDim){
+        return checkDimensionsInRange(blockDim, MAX_BLOCK_DIMENSIONS) && blockDim.totalSize() <= MAX_THREADS_PER_BLOCK;
     }
 
     CUresult launchKernel(CUfunction f, void **args, dim3 gridDim, dim3 blockDim){
-        const dim_t gridSize = gridDim.x * gridDim.y * gridDim.z;
+        if(!checkGridSize(gridDim) || !checkBlockSize(gridDim))
+            return CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES;
+        const dim_t gridSize = gridDim.totalSize();
         std::vector<dim3> blocks(gridSize);
 
         // initialize blocks id
@@ -392,6 +421,9 @@ CUresult cuLaunchKernel(CUfunction f,
         return CUDA_ERROR_NOT_INITIALIZED;
     if(contexts.empty()) // test if any context is active
         return CUDA_ERROR_INVALID_CONTEXT;
+    if(kernelParams != nullptr && extra != nullptr)
+        return CUDA_ERROR_INVALID_VALUE;
+    // check somewhere handle (f)
     printf("try to launch KERNEL on device...\n");
     return devices[contexts.top()->dev].launchKernel(f, kernelParams,
                                                      dim3(gridDimX,gridDimY,gridDimZ),
