@@ -37,7 +37,9 @@ def process_cpp(cpp_file):
 # Processes .cu file
 def process_cu(cu_file):
     print "CpUDA: processing CU file"
-    print "currently it does nothing"
+    import subprocess
+    proc=subprocess.Popen('python3 builder.py {0}'.format(os.path.abspath(cu_file)),shell=True,cwd='compiler')
+    return proc.wait()
 
 # Check file extension and call appropriate function
 def process_file(in_file):
