@@ -98,8 +98,8 @@ CUresult cuLaunchKernel(CUfunction f,
 // ------ configuration ------
 
 const unsigned int NUMBER_OF_DEVICES = 1;
-const dim3 MAX_GRID_DIMENSIONS(65535,65535,65535);
-const dim3 MAX_BLOCK_DIMENSIONS(1024,1024,64);
+const dim3 MAX_GRID_DIMENSIONS = doDim3(65535,65535,65535);
+const dim3 MAX_BLOCK_DIMENSIONS = doDim3(1024,1024,64);
 const unsigned int MAX_NUMBER_OF_BLOCKS = 65535;
 const unsigned int MAX_THREADS_PER_BLOCK = 1024;
 const unsigned int NUMBER_OF_MULTIPROCESSORS = 4; // minimal number of blocks to run simultaneously
@@ -161,14 +161,14 @@ class CUdevice_st{ // additional structure for object representing device
      * For each block it runs simultaneously all block threads.
      */
     void launchBlocks(std::vector<dim3> *blocks){
-        int blockSize = blockDim.totalSize();
+        int blockSize = totalSize(blockDim);
         std::vector<std::thread> threads(blockSize);
 
         for(auto &blockIdx : *blocks){
             printf_mutex.lock(); printf("START block (%d,%d,%d)\n", blockIdx.x, blockIdx.y, blockIdx.z); printf_mutex.unlock();
             int t_id = 0;
             for(int tz = 0; tz < blockDim.z; tz++) for(int ty = 0; ty < blockDim.y; ty++) for(int tx = 0; tx < blockDim.x; tx++){
-                threads[t_id++] = std::thread(&Function::run, kernel->func, args, blockIdx, dim3(tx,ty,tz));
+                threads[t_id++] = std::thread(&Function::run, kernel->func, args, blockIdx, doDim3(tx,ty,tz));
             }
             for (auto &t : threads) { // wait until this block will finish
                 t.join();
@@ -183,8 +183,8 @@ class CUdevice_st{ // additional structure for object representing device
     void runKernel(){
         printf_mutex.lock(); printf(">>>>> RUN KERNEL!\n"); printf_mutex.unlock();
 
-        dim_t gridSize = gridDim.totalSize();
-        dim_t blockSize = blockDim.totalSize();
+        dim_t gridSize = totalSize(gridDim);
+        dim_t blockSize = totalSize(blockDim);
 
         int concurrent = std::min(gridSize, MAX_THREADS/blockSize);
         int perThread = gridSize/concurrent;
@@ -198,7 +198,7 @@ class CUdevice_st{ // additional structure for object representing device
         // distribute ids per block runner
         int num = 0;
         for(int bz = 0; bz < gridDim.z; bz++) for(int by = 0; by < gridDim.y; by++) for(int bx = 0; bx < gridDim.x; bx++){
-            blocksDistribution[num].push_back(dim3(bx,by,bz));
+            blocksDistribution[num].push_back(doDim3(bx,by,bz));
             if(blocksDistribution[num].size() == perThread + (rem > 0)){
                 num++;
                 rem--;
@@ -548,8 +548,8 @@ CUresult cuLaunchKernel(CUfunction f,
     CUdevice_st &dev = devices[ctx->dev];
 
     CUresult res = dev.prepareDeviceToLaunch(f, kernelParams,
-                                             dim3(gridDimX,gridDimY,gridDimZ),
-                                             dim3(blockDimX,blockDimY,blockDimZ));
+                                             doDim3(gridDimX,gridDimY,gridDimZ),
+                                             doDim3(blockDimX,blockDimY,blockDimZ));
     if(res == CUDA_SUCCESS){
         printf("launching KERNEL in device!\n");
         dev.launchKernel();

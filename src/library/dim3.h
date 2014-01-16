@@ -5,12 +5,19 @@ typedef unsigned int dim_t;
 
 struct dim3{
     dim_t x, y, z;
-    dim3():                     x(0), y(0), z(0){}
-    dim3(dim_t x, dim_t y, dim_t z):  x(x), y(y), z(z){}
-    dim_t totalSize() const { // unsigned long long ?
-        return x * y * z;
-    }
 };
+
+dim3 doDim3(dim_t x, dim_t y, dim_t z){
+    dim3 d;
+    d.x = x;
+    d.y = y;
+    d.z = z;
+    return d;
+}
+
+dim_t totalSize(const dim3 &dim) { // unsigned long long ?
+    return dim.x * dim.y * dim.z;
+}
 
 bool checkDimensionsInRange(const dim3 &dim, const dim3 &range){
     return (dim.x <= range.x) && (dim.y <= range.y) && (dim.z <= range.z);
