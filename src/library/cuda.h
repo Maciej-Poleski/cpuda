@@ -1,13 +1,15 @@
 #ifndef CPUDA_CUDA_H
 #define CPUDA_CUDA_H
 
-#include <cstdio>   // printf
+#include <cstdio>    // printf
 #include <cstring>   // memcpy
+#include <algorithm> // min
 #include <stack>
 #include <vector>
 #include <thread>
 #include <mutex>
-#include <stdlib.h> // this allows to use exit function in code, also size_t in library
+#include <stdlib.h>  // this allows to use exit function in code, also size_t in library
+
 #include "cuda_result.h" // file with CUresult and it's values definition
 
 // ------------ definitions ------------
@@ -92,103 +94,157 @@ CUresult cuLaunchKernel(CUfunction f,
 
 typedef unsigned int dim_t;
 struct dim3{
-    dim_t x; dim_t y; dim_t z;
+    dim_t x, y, z;
     dim3():                     x(0), y(0), z(0){}
     dim3(dim_t x, dim_t y, dim_t z):  x(x), y(y), z(z){}
     dim_t totalSize() const { // unsigned long long ?
         return x * y * z;
     }
 };
+bool checkDimensionsInRange(const dim3 &dim, const dim3 &range){
+    return (dim.x <= range.x) && (dim.y <= range.y) && (dim.z <= range.z);
+}
+bool checkTotalSizeInLimit(const dim3 &dim, const dim_t &limit){
+    unsigned long long bound = limit;
+    unsigned long long xy = dim.x; xy *= dim.y; // ULL in order to hold product of two UI
+    return (xy <= bound) && (xy*dim.z <= bound); // two tests: x*y*z can overlap ULL
+}
 struct CUdevice_st;
 
 // ------ configuration ------
 
-const int NUMBER_OF_DEVICES = 1;
-const dim3 MAX_GRID_DIMENSIONS(32,32,32);
+const unsigned int NUMBER_OF_DEVICES = 1;
+const dim3 MAX_GRID_DIMENSIONS(65535,65535,65535);
 const dim3 MAX_BLOCK_DIMENSIONS(1024,1024,64);
-const dim_t MAX_THREADS_PER_BLOCK = 1024;
+const unsigned int MAX_NUMBER_OF_BLOCKS = 65535;
+const unsigned int MAX_THREADS_PER_BLOCK = 1024;
+const unsigned int NUMBER_OF_MULTIPROCESSORS = 4; // minimal number of blocks to run simultaneously
+
+const unsigned int MAX_THREADS = NUMBER_OF_MULTIPROCESSORS * MAX_THREADS_PER_BLOCK; // how many threads can run together
 
 // ------ structures ------
 
 std::mutex printf_mutex;           // mutex for critical section
 
 void testKernel(void **args, const dim3 &gridDim, const dim3 &blockDim, const dim3 &blockIdx, const dim3 &threadIdx){
+    int tID = (threadIdx.z * blockDim.y * blockDim.x) + (threadIdx.y * blockDim.x) + threadIdx.x;
+    if(tID & 7) // print every eighth
+        return;
+    int bID = (blockIdx.z * gridDim.y * gridDim.x) + (blockIdx.y * gridDim.x) + blockIdx.x;
     printf_mutex.lock();
-    printf("CpUDA: #(%d,%d,%d) in block #(%d,%d,%d)\n",
-           threadIdx.x, threadIdx.y, threadIdx.z, blockIdx.x, blockIdx.y, blockIdx.z);
+    for(int i=0;i<bID;i++)
+        printf("    ");
+    printf("%4d\n",tID);
     printf_mutex.unlock();
 }
 
-void internalKernelLaunch(CUdevice_st *device, CUfunction f, void **args);
-
-struct CUdevice_st{ // additional structure for object representing device
+/**
+ * This class represents device.
+ */
+class CUdevice_st{ // additional structure for object representing device
+    friend struct CUctx_st;
 
     std::thread deviceThread;
+    CUfunction kernel;
+    void **args;
     dim3 gridDim;
     dim3 blockDim;
-    std::vector<dim3> blocks;
-
-    CUdevice_st(){
-        printf("Device structure created!\n");
-    }
-
-    // simulate threads in block - run concurrently all threads
-    void launchBlock(CUfunction f, void **args, const dim3 &blockIdx){
-        std::vector<std::thread> threads;
-        for(int tz = 0; tz < blockDim.z; tz++) for(int ty = 0; ty < blockDim.y; ty++) for(int tx = 0; tx < blockDim.x; tx++){
-            threads.push_back(std::thread(testKernel, args, gridDim, blockDim, blockIdx, dim3(tx,ty,tz)));
-        }
-        for (auto &t : threads) { // wait until this block will finish
-            t.join();
-        }
-        printf("\n");
-    }
-
-    bool checkDimensionsInRange(const dim3 &dim, const dim3 &range){
-        return (dim.x < range.x) && (dim.y < range.y) && (dim.z < range.z);
-    }
 
     bool checkGridSize(const dim3 &gridDim){
-        return checkDimensionsInRange(gridDim, MAX_GRID_DIMENSIONS);
+        return checkDimensionsInRange(gridDim, MAX_GRID_DIMENSIONS) && checkTotalSizeInLimit(gridDim, MAX_NUMBER_OF_BLOCKS);
     }
 
     bool checkBlockSize(const dim3 &blockDim){
-        return checkDimensionsInRange(blockDim, MAX_BLOCK_DIMENSIONS) && blockDim.totalSize() <= MAX_THREADS_PER_BLOCK;
+        return checkDimensionsInRange(blockDim, MAX_BLOCK_DIMENSIONS) && checkTotalSizeInLimit(blockDim, MAX_THREADS_PER_BLOCK);
     }
 
+        /**
+     * This code is run by block runners. Every runner process sequentially given range of blocks.
+     * For each block it runs simultaneously all block threads.
+     */
+    void launchBlocks(std::vector<dim3> *blocks){
+        int blockSize = blockDim.totalSize();
+        std::vector<std::thread> threads(blockSize);
+
+        for(auto &blockIdx : *blocks){
+            printf_mutex.lock(); printf("START block (%d,%d,%d)\n", blockIdx.x, blockIdx.y, blockIdx.z); printf_mutex.unlock();
+            int t_id = 0;
+            for(int tz = 0; tz < blockDim.z; tz++) for(int ty = 0; ty < blockDim.y; ty++) for(int tx = 0; tx < blockDim.x; tx++){
+                threads[t_id++] = std::thread(testKernel, args, gridDim, blockDim, blockIdx, dim3(tx,ty,tz));
+            }
+            for (auto &t : threads) { // wait until this block will finish
+                t.join();
+            }
+            printf_mutex.lock(); printf("END block (%d,%d,%d)\n", blockIdx.x, blockIdx.y, blockIdx.z); printf_mutex.unlock();
+        }
+    }
+
+    /**
+     * This code is run by device thread. It simulates CUDA kernel execution.
+     */
+    void runKernel(){
+        printf_mutex.lock(); printf(">>>>> RUN KERNEL!\n"); printf_mutex.unlock();
+
+        dim_t gridSize = gridDim.totalSize();
+        dim_t blockSize = blockDim.totalSize();
+
+        int concurrent = std::min(gridSize, MAX_THREADS/blockSize);
+        int perThread = gridSize/concurrent;
+        int rem = gridSize%concurrent;
+
+        std::vector<std::vector<dim3>> blocksDistribution(concurrent);
+        blocksDistribution.reserve(gridSize);
+
+        // distribute ids per block runner
+        int num = 0;
+        for(int bz = 0; bz < gridDim.z; bz++) for(int by = 0; by < gridDim.y; by++) for(int bx = 0; bx < gridDim.x; bx++){
+            blocksDistribution[num].push_back(dim3(bx,by,bz));
+            if(blocksDistribution[num].size() == perThread + (rem > 0)){
+                num++;
+                rem--;
+            }
+        }
+        std::vector<std::thread> blockRunners;
+        for(int i=0; i<concurrent; i++){
+            blockRunners.push_back(std::thread(&CUdevice_st::launchBlocks, this, &blocksDistribution[i]));
+        }
+        for (auto &runner : blockRunners) { // wait until all block runners will finish
+            runner.join();
+        }
+        printf_mutex.lock(); printf("<<<<< END KERNEL!\n"); printf_mutex.unlock();
+    }
+public:
+    /**
+     * Simple check if device (its thread) is running.
+     */
     bool isDeviceRunning(){
         return deviceThread.joinable();
     }
 
-    CUresult prepareDeviceToLaunch(dim3 gridDim, dim3 blockDim){
+    /**
+     * Prepares device represented by this object to launch given kernel. Device check if it is able
+     * to execute this kernel. This method must be called before launching kernel via launchKernel().
+     */
+    CUresult prepareDeviceToLaunch(CUfunction f, void **args, const dim3 &gridDim, const dim3 &blockDim){
         if(isDeviceRunning()) // currently we do not support concurrent kernels execution
             return CUDA_ERROR_LAUNCH_FAILED;
-        if(!checkGridSize(gridDim) || !checkBlockSize(gridDim))
+        if(!checkGridSize(gridDim) || !checkBlockSize(blockDim))
             return CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES;
+        this->kernel = f;
+        this->args = args;
         this->gridDim = gridDim;
         this->blockDim = blockDim;
-        // initialize blocks id
-        blocks.clear();
-        for(int bz = 0; bz < gridDim.z; bz++) for(int by = 0; by < gridDim.y; by++) for(int bx = 0; bx < gridDim.x; bx++){
-            blocks.push_back(dim3(bx,by,bz));
-        }
         return CUDA_SUCCESS;
     }
 
-    CUresult launchKernel(CUfunction f, void **args){
-        deviceThread = std::thread(internalKernelLaunch, this, f, args);
-    }
-
-    void runKernel(CUfunction f, void **args){
-        for(int i=0; i<blocks.size(); i++){ // run blocks in synchronous way
-            launchBlock(f, args, blocks[i]);
-        }
+    /**
+     * Simple method to launch kernel in device (asynchronously). Calling thread only starts device thread
+     * and returns. Device thread starts launching all kernel blocks and threads and waits for all of them.
+     */
+    CUresult launchKernel(){
+        deviceThread = std::thread(&CUdevice_st::runKernel, this);
     }
 };
-
-void internalKernelLaunch(CUdevice_st *device, CUfunction f, void **args){
-    device->runKernel(f, args);
-}
 
 struct CUctx_st{
     CUdevice dev;
@@ -204,6 +260,9 @@ struct CUctx_st{
     void waitForTask(){
         if(isTaskRunning())
             task->join();
+    }
+    void setTaskToDevice(CUdevice_st &device){
+        task = &device.deviceThread;
     }
     ~CUctx_st(){
         printf("destroying context of device %d\n", dev);
@@ -460,11 +519,13 @@ CUresult cuLaunchKernel(CUfunction f,
     CUcontext ctx = contexts.top();
     CUdevice_st &dev = devices[ctx->dev];
 
-    CUresult res = dev.prepareDeviceToLaunch(dim3(gridDimX,gridDimY,gridDimZ), dim3(blockDimX,blockDimY,blockDimZ));
+    CUresult res = dev.prepareDeviceToLaunch(f, kernelParams,
+                                             dim3(gridDimX,gridDimY,gridDimZ),
+                                             dim3(blockDimX,blockDimY,blockDimZ));
     if(res == CUDA_SUCCESS){
         printf("launching KERNEL in device!\n");
-        dev.launchKernel(f, kernelParams);
-        ctx->task = &dev.deviceThread;
+        dev.launchKernel();
+        ctx->setTaskToDevice(dev);
     }
     return res;
 }

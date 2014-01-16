@@ -52,7 +52,7 @@ int main(){
     // prepare arguments and launch kernel
     void* args[] = {&dev_tab, &m, &n};
     res = cuLaunchKernel(cuFun,
-                         2, 2, 1, 2, 2, 2,  // block in grid, threads in block
+                         2, 2, 2, 32, 16, 2,  // blocks in grid, threads in block
                          0, 0, args, 0);
     if (res != CUDA_SUCCESS){
         printf("cannot run kernel\n");
