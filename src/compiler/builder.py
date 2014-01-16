@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
+from __future__ import print_function
 import sys
 
-from parser import Parser
+from cuparser import Parser
 import subprocess
 
 class ObjectInfo(object):

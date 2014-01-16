@@ -3,7 +3,7 @@
 
 import sys
 import os
-from subprocess import call
+import subprocess
 
 # ----------- Program usage -----------
 
@@ -32,13 +32,12 @@ def process_cpp(cpp_file):
     raw_file_name = os.path.splitext(os.path.basename(cpp_file))[0]
     gpp_cmd = gpp_cmd_str.format(lib_path, raw_file_name, cpp_file)
     print "call:", gpp_cmd
-    call(gpp_cmd)
+    subprocess.call(gpp_cmd)
 
 # Processes .cu file
 def process_cu(cu_file):
     print "CpUDA: processing CU file"
-    import subprocess
-    proc=subprocess.Popen('python3 builder.py {0}'.format(os.path.abspath(cu_file)),shell=True,cwd='compiler')
+    proc=subprocess.Popen('python builder.py {0}'.format(os.path.abspath(cu_file)),shell=True,cwd='compiler')
     return proc.wait()
 
 # Check file extension and call appropriate function

@@ -1,3 +1,4 @@
 syntax: glob
 other
 *.exe
+*.pyc
