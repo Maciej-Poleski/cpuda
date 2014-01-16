@@ -10,7 +10,8 @@
 #include <mutex>
 #include <stdlib.h>  // this allows to use exit function in code, also size_t in library
 
-#include "cuda_result.h" // file with CUresult and it's values definition
+#include "cuda_result.h" // CUresult and its values definition
+#include "module.h"      // Module, Function, printf_mutex
 
 // ------------ definitions ------------
 
@@ -92,24 +93,7 @@ CUresult cuLaunchKernel(CUfunction f,
 
 // ------------ temporary implementation ------------
 
-typedef unsigned int dim_t;
-struct dim3{
-    dim_t x, y, z;
-    dim3():                     x(0), y(0), z(0){}
-    dim3(dim_t x, dim_t y, dim_t z):  x(x), y(y), z(z){}
-    dim_t totalSize() const { // unsigned long long ?
-        return x * y * z;
-    }
-};
-bool checkDimensionsInRange(const dim3 &dim, const dim3 &range){
-    return (dim.x <= range.x) && (dim.y <= range.y) && (dim.z <= range.z);
-}
-bool checkTotalSizeInLimit(const dim3 &dim, const dim_t &limit){
-    unsigned long long bound = limit;
-    unsigned long long xy = dim.x; xy *= dim.y; // ULL in order to hold product of two UI
-    return (xy <= bound) && (xy*dim.z <= bound); // two tests: x*y*z can overlap ULL
-}
-struct CUdevice_st;
+#include "dim3.h"
 
 // ------ configuration ------
 
@@ -124,19 +108,33 @@ const unsigned int MAX_THREADS = NUMBER_OF_MULTIPROCESSORS * MAX_THREADS_PER_BLO
 
 // ------ structures ------
 
-std::mutex printf_mutex;           // mutex for critical section
+//std::mutex printf_mutex;           // mutex for critical section
 
-void testKernel(void **args, const dim3 &gridDim, const dim3 &blockDim, const dim3 &blockIdx, const dim3 &threadIdx){
-    int tID = (threadIdx.z * blockDim.y * blockDim.x) + (threadIdx.y * blockDim.x) + threadIdx.x;
-    if(tID & 7) // print every eighth
-        return;
-    int bID = (blockIdx.z * gridDim.y * gridDim.x) + (blockIdx.y * gridDim.x) + blockIdx.x;
-    printf_mutex.lock();
-    for(int i=0;i<bID;i++)
-        printf("    ");
-    printf("%4d\n",tID);
-    printf_mutex.unlock();
-}
+struct CUmod_st{
+    Module *mod;
+
+    CUmod_st(const char *fname){
+        mod = new Module(fname);
+    }
+    ~CUmod_st(){
+        if(mod != nullptr)
+            delete mod;
+    }
+};
+struct CUfunc_st{
+    Function *func;
+    CUmodule mod;
+
+    CUfunc_st(const CUmodule module, const char *name){
+        func = new Function(*module->mod, name);
+        mod = module;
+    }
+    ~CUfunc_st(){
+        if(func != nullptr)
+            delete func;
+    }
+};
+struct CUstream_st{};
 
 /**
  * This class represents device.
@@ -158,7 +156,7 @@ class CUdevice_st{ // additional structure for object representing device
         return checkDimensionsInRange(blockDim, MAX_BLOCK_DIMENSIONS) && checkTotalSizeInLimit(blockDim, MAX_THREADS_PER_BLOCK);
     }
 
-        /**
+    /**
      * This code is run by block runners. Every runner process sequentially given range of blocks.
      * For each block it runs simultaneously all block threads.
      */
@@ -170,7 +168,7 @@ class CUdevice_st{ // additional structure for object representing device
             printf_mutex.lock(); printf("START block (%d,%d,%d)\n", blockIdx.x, blockIdx.y, blockIdx.z); printf_mutex.unlock();
             int t_id = 0;
             for(int tz = 0; tz < blockDim.z; tz++) for(int ty = 0; ty < blockDim.y; ty++) for(int tx = 0; tx < blockDim.x; tx++){
-                threads[t_id++] = std::thread(testKernel, args, gridDim, blockDim, blockIdx, dim3(tx,ty,tz));
+                threads[t_id++] = std::thread(&Function::run, kernel->func, args, blockIdx, dim3(tx,ty,tz));
             }
             for (auto &t : threads) { // wait until this block will finish
                 t.join();
@@ -191,6 +189,8 @@ class CUdevice_st{ // additional structure for object representing device
         int concurrent = std::min(gridSize, MAX_THREADS/blockSize);
         int perThread = gridSize/concurrent;
         int rem = gridSize%concurrent;
+
+        kernel->mod->mod->initializeModule(gridDim, blockDim);
 
         std::vector<std::vector<dim3>> blocksDistribution(concurrent);
         blocksDistribution.reserve(gridSize);
@@ -268,9 +268,6 @@ struct CUctx_st{
         printf("destroying context of device %d\n", dev);
     }
 };
-struct CUmod_st{};
-struct CUfunc_st{};
-struct CUstream_st{};
 
 // ------ data ------
 
@@ -408,17 +405,48 @@ CUresult cuCtxSynchronize(){ // synchronization
 }
 
 // module/function loading
+
+/*
+ * From API:
+ * Loads the corresponding module into the current context.
+ * The CUDA driver API does not attempt to lazily allocate the resources needed by a module; it fails
+ * if the memory for functions and data (constant and global) needed by the module cannot be allocated.
+ */
+/**
+ * Currently we only loads module - its data will be allocated before kernel call.
+ */
 CUresult cuModuleLoad(CUmodule *module, const char *fname){
     printf("want to load module %s\n",fname);
-    printf("...TO DO...!\n");
-    module = nullptr;
+    if(!cudaInitialized) // test whether API is initialized
+        return CUDA_ERROR_NOT_INITIALIZED;
+    if(contexts.empty()) // test if any context is active
+        return CUDA_ERROR_INVALID_CONTEXT;
+    if(module == nullptr || fname == nullptr)
+        return CUDA_ERROR_INVALID_VALUE;
+    CUcontext ctx = contexts.top(); // get current context
+    try {
+        *module = new CUmod_st(fname);
+        //ctx.addModule(*module); // load module into the context
+    } catch (const std::runtime_error& re) {
+        return CUDA_ERROR_NOT_FOUND;
+    }
     return CUDA_SUCCESS;
 }
 
+//    CUfunc_st *CUfunction;
 CUresult cuModuleGetFunction(CUfunction *hfunc, CUmodule hmod, const char *name){
     printf("want to get function %s\n",name);
-    printf("...TO DO...!\n");
-    hfunc = nullptr;
+    if(!cudaInitialized) // test whether API is initialized
+        return CUDA_ERROR_NOT_INITIALIZED;
+    if(contexts.empty()) // test if any context is active
+        return CUDA_ERROR_INVALID_CONTEXT;
+    if(hfunc == nullptr || name == nullptr)
+        return CUDA_ERROR_INVALID_VALUE;
+    try {
+        *hfunc = new CUfunc_st(hmod, name);
+    } catch (const std::runtime_error& re) {
+        return CUDA_ERROR_NOT_FOUND;
+    }
     return CUDA_SUCCESS;
 }
 //CUresult cuModuleUnload ( CUmodule hmod );
