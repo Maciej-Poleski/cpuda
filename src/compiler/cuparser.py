@@ -1,3 +1,5 @@
+import re
+
 class Parser(object):
     def set_kernel_declaration_callback(self, kernel_declaration_callback):
         self.k = kernel_declaration_callback
@@ -6,43 +8,58 @@ class Parser(object):
         self.m = shared_memory_definition_callback
 
     def parse(self, file):
-        result = ('extern "C"\n'
-                  '{\n'
-                  '\n'
-                  'int fun1(int* argIntStar, float argFloat)\n'
-                  '{\n'
-        )
-        result += self.m('fun1', 'tab', 'int[123]')
-        result += self.m('fun1', 'temp', 'int')
-        result += self.m('fun1', 'ptr', 'int*')
-        result += self.m('fun1', 'arr', 'int[2]')
-        result += ('\n'
-                   '    ptr=&tab[5];\n'
-                   '    tab[5]=argIntStar[threadIdx.x];\n'
-                   '    argIntStar[6]=*ptr;\n'
-                   '    return 10;\n'
-                   '}\n'
-                   '\n'
-                   'void fun2(char* argCharStar,int argInt)\n'
-                   '{\n'
-        )
-        result += self.m('fun2', 'tab', 'char[12]')
-        result += self.m('fun2', 'a', 'char')
-        result += self.m('fun2', 'b', 'char')
-        result += self.m('fun2', 'c', 'char*')
-        result += self.m('fun2', 'q', 'int')
-        result += self.m('fun2', 'w', 'int[2]')
-        result += self.m('fun2', 'e', 'int*')
+        result = ('#define __device__\n'
+                  '#define __global__\n'
+                  '#define __shared__\n')
+        deviceFunctionRe=re.compile(r'__device__\s+.*\s+(.*)\(.*\)',re.IGNORECASE)
+        globalFunctionRe=re.compile(r'__global__\s+void\s+(.*)\(((.*,)*(.*))\)',re.IGNORECASE)
+        sharedRe=re.compile(r'^(\s*)__shared__\s+(.*);',re.IGNORECASE|re.MULTILINE)
+        singleDeclarationRe=re.compile(r'((.*)\W)(\w+)',re.IGNORECASE)
+        sharedMemoryDeclarationRe=re.compile(r'^((unsigned\s+|signed\s+|)(([^*\s])+))((.+,)*.*)$',re.IGNORECASE)
+        typedNamePartRe=re.compile(r'^(\W*)(\w*)(.*)$',re.IGNORECASE)
+        function=None
+        with open(file) as f:
+            seen=''
+            oldEnd=0
+            for line in f:
+                seen+=line
+                match=None
+                for match in deviceFunctionRe.finditer(seen):
+                    pass
+                if match and match.end()>oldEnd:
+                    oldEnd=match.end()
+                    function=match.group(1)
+                    result+=line
+                    continue
+                match=None
+                for match in globalFunctionRe.finditer(seen):
+                    pass
+                if match and match.end()>oldEnd:
+                    oldEnd=match.end()
+                    function=match.group(1)
+                    args=match.group(2).split(',')
+                    parsedArgs=[]
+                    for arg in args:
+                        am=singleDeclarationRe.match(arg)
+                        parsedArgs+=[am.group(1).strip()]
+                    result+=line
+                    self.k(function,parsedArgs)
+                    continue
+                match=None
+                for match in sharedRe.finditer(seen):
+                    pass
+                if match and match.end()>oldEnd:
+                    oldEnd=match.end()
+                    sm=sharedMemoryDeclarationRe.match(match.group(2))
+                    typePrefix=sm.group(1)
+                    args=sm.group(5).split(',')
+                    for arg in args:
+                        vm=typedNamePartRe.match(arg.strip())
+                        result+=match.group(1)+self.m(function,vm.group(2),typePrefix+vm.group(1).strip()+vm.group(3).strip())
+                    continue
+                result+=line
 
-        result += 'argCharStar[threadIdx.x]=5;\n'
-
-        result += ('\n'
-                   '}\n'
-                   '\n'
-                   '}'
-        )
-
-        self.k('fun1', ('int*', 'float'))
-        self.k('fun2', ('char*', 'int'))
-
+        result += ('\n#undef __device__\n'
+                   '#undef __global__\n'
+                   '#undef __shared__\n')
         return result
