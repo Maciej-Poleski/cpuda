@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-from __future__ import print_function
 import sys
+import os
+import subprocess
 
 from cuparser import Parser
-import subprocess
+
 
 class ObjectInfo(object):
     def __init__(self, name, type):
@@ -33,7 +34,7 @@ parser = Parser()
 parser.set_kernel_declaration_callback(kernel_handler)
 parser.set_shared_memory_definition_callback(shared_memory_handler)
 
-with open('templates/header_constant.cc') as f:
+with open(os.path.dirname(os.path.realpath(__file__))+'/templates/header_constant.cc') as f:
     code += f.read()
 
 result = parser.parse(sys.argv[1])
@@ -105,17 +106,18 @@ for fun in kernels:
              '}}\n'
              '\n').format(name=fun)
 
-ccFileName=sys.argv[1]+'.cc'
+baseFileName=os.path.basename(sys.argv[1])
+ccFileName=baseFileName+'.cc'
 
 with open(ccFileName,mode='w') as f:
     print(code,file=f)
 
 ptxFileName=None
 
-if sys.argv[1].endswith('.cu'):
-    ptxFileName=sys.argv[1][:-3]+'.ptx'
+if baseFileName.endswith('.cu'):
+    ptxFileName=baseFileName[:-3]+'.ptx'
 else:
-    ptxFileName=sys.argv[1]+'.ptx'
+    ptxFileName=baseFileName+'.ptx'
 
 with open(ccFileName) as f:
     subprocess.check_call(['g++','-std=c++11','-O3','-Wall','-march=native','-shared','-fPIC','-xc++','-pipe','-o'+ptxFileName,'-'],stdin=f)
