@@ -108,8 +108,6 @@ const unsigned int MAX_THREADS = NUMBER_OF_MULTIPROCESSORS * MAX_THREADS_PER_BLO
 
 // ------ structures ------
 
-//std::mutex printf_mutex;           // mutex for critical section
-
 struct CUmod_st{
     Module *mod;
 
@@ -123,11 +121,11 @@ struct CUmod_st{
 };
 struct CUfunc_st{
     Function *func;
-    CUmodule mod;
+    CUmodule cuMod;
 
     CUfunc_st(const CUmodule module, const char *name){
         func = new Function(*module->mod, name);
-        mod = module;
+        cuMod = module;
     }
     ~CUfunc_st(){
         if(func != nullptr)
@@ -165,7 +163,7 @@ class CUdevice_st{ // additional structure for object representing device
         std::vector<std::thread> threads(blockSize);
 
         for(auto &blockIdx : *blocks){
-            printf_mutex.lock(); printf("START block (%d,%d,%d)\n", blockIdx.x, blockIdx.y, blockIdx.z); printf_mutex.unlock();
+            kernel->cuMod->mod->initializeBlock(blockIdx);
             int t_id = 0;
             for(int tz = 0; tz < blockDim.z; tz++) for(int ty = 0; ty < blockDim.y; ty++) for(int tx = 0; tx < blockDim.x; tx++){
                 threads[t_id++] = std::thread(&Function::run, kernel->func, args, blockIdx, doDim3(tx,ty,tz));
@@ -173,7 +171,7 @@ class CUdevice_st{ // additional structure for object representing device
             for (auto &t : threads) { // wait until this block will finish
                 t.join();
             }
-            printf_mutex.lock(); printf("END block (%d,%d,%d)\n", blockIdx.x, blockIdx.y, blockIdx.z); printf_mutex.unlock();
+            kernel->cuMod->mod->releaseBlock(blockIdx);
         }
     }
 
@@ -181,7 +179,8 @@ class CUdevice_st{ // additional structure for object representing device
      * This code is run by device thread. It simulates CUDA kernel execution.
      */
     void runKernel(){
-        printf_mutex.lock(); printf(">>>>> RUN KERNEL!\n"); printf_mutex.unlock();
+        printf(">>>>> RUN KERNEL!\n");
+        kernel->cuMod->mod->initializeModule(gridDim, blockDim);
 
         dim_t gridSize = totalSize(gridDim);
         dim_t blockSize = totalSize(blockDim);
@@ -189,8 +188,6 @@ class CUdevice_st{ // additional structure for object representing device
         int concurrent = std::min(gridSize, MAX_THREADS/blockSize);
         int perThread = gridSize/concurrent;
         int rem = gridSize%concurrent;
-
-        kernel->mod->mod->initializeModule(gridDim, blockDim);
 
         std::vector<std::vector<dim3>> blocksDistribution(concurrent);
         blocksDistribution.reserve(gridSize);
@@ -211,7 +208,8 @@ class CUdevice_st{ // additional structure for object representing device
         for (auto &runner : blockRunners) { // wait until all block runners will finish
             runner.join();
         }
-        printf_mutex.lock(); printf("<<<<< END KERNEL!\n"); printf_mutex.unlock();
+        kernel->cuMod->mod->cleanupModule();
+        printf("<<<<< END KERNEL!\n");
     }
 public:
     /**
@@ -349,14 +347,14 @@ CUresult cuCtxDestroy(CUcontext ctx){ // context destruction
     if(isCurrentContext(ctx))
         cuCtxPopCurrent(nullptr);
     delete ctx;
-	return CUDA_SUCCESS;
+    return CUDA_SUCCESS;
 }
 
 CUresult cuCtxPushCurrent(CUcontext ctx){
     if(!cudaInitialized) // test whether API is initialized
         return CUDA_ERROR_NOT_INITIALIZED;
     contexts.push(ctx);
-	return CUDA_SUCCESS;
+    return CUDA_SUCCESS;
 }
 
 CUresult cuCtxPopCurrent(CUcontext *pctx){
@@ -368,7 +366,7 @@ CUresult cuCtxPopCurrent(CUcontext *pctx){
     if(pctx != nullptr) // if pctx is given store (old) context in it
         *pctx = contexts.top();
     contexts.pop(); // pop context, making another current
-	return CUDA_SUCCESS;
+    return CUDA_SUCCESS;
 }
 
 CUresult cuCtxGetCurrent(CUcontext *pctx){
@@ -378,7 +376,7 @@ CUresult cuCtxGetCurrent(CUcontext *pctx){
         *pctx = nullptr;
     else
         *pctx = contexts.top();
-	return CUDA_SUCCESS;
+    return CUDA_SUCCESS;
 }
 
 CUresult cuCtxGetDevice(CUdevice *device){
@@ -389,7 +387,7 @@ CUresult cuCtxGetDevice(CUdevice *device){
     if(device == nullptr)
         return CUDA_ERROR_INVALID_VALUE;
     *device = contexts.top()->dev;
-	return CUDA_SUCCESS;
+    return CUDA_SUCCESS;
 }
 
 CUresult cuCtxSynchronize(){ // synchronization
@@ -397,11 +395,8 @@ CUresult cuCtxSynchronize(){ // synchronization
         return CUDA_ERROR_NOT_INITIALIZED;
     if(contexts.empty())
         return CUDA_ERROR_INVALID_CONTEXT; // no context to pop
-    printf_mutex.lock(); printf("wait until context task will be finished\n"); printf_mutex.unlock();
     contexts.top()->waitForTask();
-    printf("done\n");
-    // TODO !!! !!! !!!
-	return CUDA_SUCCESS;
+    return CUDA_SUCCESS;
 }
 
 // module/function loading
@@ -461,7 +456,7 @@ CUresult cuMemAlloc(CUdeviceptr *dptr, size_t bytesize){
         return CUDA_ERROR_INVALID_VALUE;
     *dptr = (CUdeviceptr) malloc(bytesize);
     printf( "Memory allocated under: %u\n",*dptr);
-	return CUDA_SUCCESS;
+    return CUDA_SUCCESS;
 }
 
 CUresult cuMemFree(CUdeviceptr dptr){
@@ -473,7 +468,7 @@ CUresult cuMemFree(CUdeviceptr dptr){
         return CUDA_ERROR_INVALID_VALUE;
     printf("Free memory under value: %u\n",dptr);
     free((void*) dptr);
-	return CUDA_SUCCESS;
+    return CUDA_SUCCESS;
 }
 
 CUresult cuMemAllocHost(void **pp, size_t bytesize){
@@ -485,7 +480,7 @@ CUresult cuMemAllocHost(void **pp, size_t bytesize){
         return CUDA_ERROR_INVALID_VALUE;
     *pp = malloc(bytesize);
     printf( "Host memory allocated under: %u\n",*pp);
-	return CUDA_SUCCESS;
+    return CUDA_SUCCESS;
 }
 
 CUresult cuMemFreeHost(void *p){
@@ -497,7 +492,7 @@ CUresult cuMemFreeHost(void *p){
         return CUDA_ERROR_INVALID_VALUE;
     printf("Free memory under value: %u\n",p);
     free(p);
-	return CUDA_SUCCESS;
+    return CUDA_SUCCESS;
 }
 
 // memory copying
@@ -525,7 +520,7 @@ CUresult cuMemcpyHtoD(CUdeviceptr dstDevice, const void *srcHost, size_t ByteCou
 CUresult cuMemcpyDtoH(void *dstHost, CUdeviceptr srcDevice, size_t ByteCount){
     printf("copy from DEVICE to HOST\n");
     internalSimpleMemcpy(dstHost, (void*) srcDevice, ByteCount);
-	return CUDA_SUCCESS;
+    return CUDA_SUCCESS;
 }
 
 // kernel launch

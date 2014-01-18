@@ -2,3 +2,5 @@ syntax: glob
 other
 *.exe
 *.pyc
+*.cu.cc
+*.ptx
