@@ -1,5 +1,5 @@
-#ifndef MODULE_H
-#define MODULE_H
+#ifndef PTX_MODULE_H
+#define PTX_MODULE_H
 
 #include "dim3.h"
 
@@ -182,4 +182,4 @@ void Function::run(void* args[], blockIdx_t blockIdx, threadIdx_t threadIdx)
     _run(args, module.gridDim, module.blockDim, blockIdx, threadIdx);
 }
 
-#endif // MODULE_H
+#endif // PTX_MODULE_H
