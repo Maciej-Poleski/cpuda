@@ -1,3 +1,9 @@
+#ifdef __GNUC__
+    #if !(__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))
+        #define thread_local __thread
+    #endif
+#endif
+
 namespace detail
 {
 struct data3d {
@@ -42,5 +48,21 @@ struct type_wrapper {
     using type = T;
 };
 }
+
+#include<cstdio>
+#include<stdarg.h>
+#include<mutex>
+std::mutex printf_mutex; // mutex for synchronized printing
+
+void sync_printf(const char *format, ...){
+    va_list arglist;
+    va_start(arglist, format);
+    printf_mutex.lock();
+    vprintf(format, arglist);
+    printf_mutex.unlock();
+    va_end(arglist);
+}
+
+#define printf sync_printf
 
 // Here begins generated code
