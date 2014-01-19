@@ -1,5 +1,5 @@
-#ifndef MODULE_H
-#define MODULE_H
+#ifndef PTX_MODULE_H
+#define PTX_MODULE_H
 
 #include "dim3.h"
 
@@ -11,7 +11,7 @@ typedef dim3 threadIdx_t;
 class Module;
 
 /**
- * @brief Object of this class gives acces to one kernel from given module.
+ * @brief Object of this class gives access to one kernel from given module.
  * If you want to invoke one selected function (kernel) from some module
  * (.ptx) this is solution you are looking for. You have to provide module
  * and name of kernel. After that you can invoke kernel as many times as you
@@ -23,7 +23,6 @@ class Module;
 class Function
 {
 public:
-    const Module& module;
     /**
      * @param module Module in which we look for this function
      * @param name Name of kernel function (must be marked with __global__)
@@ -31,13 +30,18 @@ public:
     Function(const Module& module, const char *name);
 
     /**
+     * Call selected method from .ptx module. Each thread corresponding to
+     * CUDA thread should call this function in order to execute kernel code.
      * @param args Kernel parameters as provided in cuLaunchKernel
+     * @param blockIdx Block id of calling thread
+     * @param threadIdx Thread id of calling thread
      */
     void run(void* args[],
              blockIdx_t blockIdx,
              threadIdx_t threadIdx);
 
 private:
+    const Module &module;
     void (*const _run)(void* args[],
                        gridDim_t gridDim,
                        blockDim_t blockDim,
@@ -48,7 +52,7 @@ private:
 /**
  * @brief Object of this class gives access to one module (.ptx).
  * If you want general access to given module you should use this class.
- * You have to provide module name (witch .ptx extension). Before invoking
+ * You have to provide module name (with .ptx extension). Before invoking
  * kernel you have to do appropriate initialization. You have to invoke
  * initializeModule() once before any other function in this class. You have
  * to invoke initializeBlock() before running (@see Function::run()) kernel
@@ -76,8 +80,9 @@ public:
 
     /**
      * Initialize global module state. Must be invoked exactly one time before
-     * kernel
+     * kernel invocation. Module (.ptx) initialize memory, dimensions are remembered.
      * @param gridDim gridDim as provided to kernel
+     * @param blockDim blockDim as provided to kernel
      */
     void initializeModule(gridDim_t gridDim, blockDim_t blockDim);
 
@@ -90,8 +95,7 @@ public:
     /**
      * Initialize shared block state. Must be invoked exactly one time before
      * start of any thread in given block. Must be invoked after
-     * initializeModule
-     * @param gridDim gridDim as provided to kernel
+     * initializeModule.
      * @param blockIdx blockIdx of block which is about to launch
      */
     void initializeBlock(blockIdx_t blockIdx);
@@ -99,8 +103,7 @@ public:
     /**
      * Releases any resources associated with given block. Must be invoked
      * exactly one time after last thread in given block finished but before
-     * cleanupModule()
-     * @param gridDim gridDim as provided to kernel
+     * cleanupModule().
      * @param blockIdx blockIdx of block which is about to finish
      */
     void releaseBlock(blockIdx_t blockIdx);
@@ -123,12 +126,11 @@ private:
 #include <iostream>
 #include <stdexcept>
 
-//#include <dlfcn.h>
-int RTLD_LAZY = 1, RTLD_NOW = 1<<1, RTLD_GLOBAL = 1<<2, RTLD_LOCAL = 1<<3;
-void  *dlopen(const char *, int){};
-void  *dlsym(void *, const char *){};
-int    dlclose(void *){};
-char  *dlerror(void){};
+#ifdef _WIN32
+    #include <dlfcn-win32.h>  // wrapper for windows dll management
+#else
+    #include <dlfcn.h>
+#endif
 
 Module::Module(const char *name)
     : _moduleHandle(dlopen(name, RTLD_LOCAL | RTLD_LAZY)),
@@ -152,13 +154,13 @@ void Module::initializeModule(gridDim_t gridDim, blockDim_t blockDim)
 {
     this->gridDim = gridDim;
     this->blockDim = blockDim;
-    printf("Initialize Module!!!\n");
-    //_kernel_global_init(gridDim);
+    _kernel_global_init(gridDim);
 }
 
 void Module::cleanupModule()
 {
     _kernel_global_deinit();
+    gridDim = blockDim = dim3();
 }
 
 void Module::initializeBlock(blockIdx_t blockIdx)
@@ -179,23 +181,9 @@ Function::Function(const Module& module, const char *name)
         throw std::runtime_error(dlerror());
 }
 
-std::mutex printf_mutex;           // mutex for critical section
-void testKernel(void **args, const dim3 &gridDim, const dim3 &blockDim, const dim3 &blockIdx, const dim3 &threadIdx){
-    int tID = (threadIdx.z * blockDim.y * blockDim.x) + (threadIdx.y * blockDim.x) + threadIdx.x;
-    if(tID & 7) // print every eighth
-        return;
-    int bID = (blockIdx.z * gridDim.y * gridDim.x) + (blockIdx.y * gridDim.x) + blockIdx.x;
-    printf_mutex.lock();
-    for(int i=0;i<bID;i++)
-        printf("    ");
-    printf("%4d\n",tID);
-    printf_mutex.unlock();
-}
-
 void Function::run(void* args[], blockIdx_t blockIdx, threadIdx_t threadIdx)
 {
-    //_run(args, module.gridDim, module.blockDim, blockIdx, threadIdx);
-    testKernel(args, module.gridDim, module.blockDim, blockIdx, threadIdx);
+    _run(args, module.gridDim, module.blockDim, blockIdx, threadIdx);
 }
 
-#endif // MODULE_H
+#endif // PTX_MODULE_H
