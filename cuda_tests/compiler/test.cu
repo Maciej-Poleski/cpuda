@@ -17,4 +17,9 @@ __global__ void fun2(char* argCharStar,int argInt)
     argCharStar[threadIdx.x]=5;
 }
 
+__global__ void fun3()
+{}
+
+__device__ int*fun4(){ return 0;}
+
 }
