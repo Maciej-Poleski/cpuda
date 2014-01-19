@@ -1,10 +1,6 @@
 #ifndef CPUDA_CUDA_H
 #define CPUDA_CUDA_H
 
-#include <cstdio>    // printf
-#include <cstring>   // memcpy
-#include <algorithm> // min
-#include <stack>
 #include <stdlib.h>  // this allows to use exit function in code, also size_t in library
 
 #include "cuda_result.h" // CUresult and its values definition
@@ -88,20 +84,13 @@ CUresult cuLaunchKernel(CUfunction f,
                         void **extra);
 
 
-// ------------ temporary implementation ------------
+// ------------ include implementation ------------
 
-#include "device_impl.h"
-#include "context_impl.h"
-#include "module_impl.h"      // Module, Function
-#include "memory_impl.h"
-#include "exec_impl.h"
-
-// ------ data ------
-
-bool cudaInitialized = false;
-
-CUdevice_st *devices; // table with devices
-int numOfAvailableDevices; // number of available devices
-
+#include "device_impl.h"    // initialization, device class and device management
+#include "context_impl.h"   // context management
+#include "module_impl.h"    // module management
+#include "memory_impl.h"    // memory management
+//#include "stream_impl.h"    // stream management - empty
+#include "exec_impl.h"      // execution control
 
 #endif /* CPUDA_CUDA_H */

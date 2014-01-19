@@ -1,10 +1,16 @@
 #ifndef MODULE_IMPL
 #define MODULE_IMPL
 
+#include <stdexcept>
+
 #include "ptx_module.h"
+#include "context_impl.h"
+#include "cuda_result.h"
+
+// -------- class implementation --------
 
 struct CUmod_st{
-    Module *mod;
+    Module *mod; // ptx module wrapper
 
     CUmod_st(const char *fname){
         mod = new Module(fname);
@@ -14,11 +20,12 @@ struct CUmod_st{
             delete mod;
     }
 };
-struct CUfunc_st{
-    Function *func;
-    CUmodule cuMod;
 
-    CUfunc_st(const CUmodule module, const char *name){
+struct CUfunc_st{
+    Function *func; // ptx kernel function wrapper
+    const CUmod_st *cuMod; // pointer to module containing this function wrapper
+
+    CUfunc_st(const CUmod_st *module, const char *name){
         func = new Function(*module->mod, name);
         cuMod = module;
     }
@@ -27,58 +34,50 @@ struct CUfunc_st{
             delete func;
     }
 };
-struct CUstream_st{};
 
+typedef struct CUmod_st *CUmodule;
+typedef struct CUfunc_st *CUfunction;
 
+// ----------- helper methods -----------
+// --------- API implementation ---------
 
-extern bool cudaInitialized;
-extern std::stack<CUcontext> contexts; // stack for contexts management
-
-// module/function loading
-
-/*
+/**
  * From API:
  * Loads the corresponding module into the current context.
  * The CUDA driver API does not attempt to lazily allocate the resources needed by a module; it fails
  * if the memory for functions and data (constant and global) needed by the module cannot be allocated.
- */
-/**
+ *
  * Currently we only loads module - its data will be allocated before kernel call.
  */
 CUresult cuModuleLoad(CUmodule *module, const char *fname){
-    printf("want to load module %s\n",fname);
-    if(!cudaInitialized) // test whether API is initialized
-        return CUDA_ERROR_NOT_INITIALIZED;
-    if(contexts.empty()) // test if any context is active
-        return CUDA_ERROR_INVALID_CONTEXT;
-    if(module == nullptr || fname == nullptr)
-        return CUDA_ERROR_INVALID_VALUE;
-    CUcontext ctx = contexts.top(); // get current context
-    try {
-        *module = new CUmod_st(fname);
-        //ctx.addModule(*module); // load module into the context
-    } catch (const std::runtime_error& re) {
-        return CUDA_ERROR_NOT_FOUND;
+    CUresult res = hasValidContext();
+    if(res == CUDA_SUCCESS){
+        if(module == nullptr || fname == nullptr)
+            return CUDA_ERROR_INVALID_VALUE;
+        CUcontext ctx = getCurrentContext();
+        try {
+            *module = new CUmod_st(fname);
+            //ctx.addModule(*module); // TODO!!! load module into the context
+        } catch (const std::runtime_error& re) {
+            return CUDA_ERROR_NOT_FOUND;
+        }
     }
-    return CUDA_SUCCESS;
+    return res;
 }
 
-//    CUfunc_st *CUfunction;
 CUresult cuModuleGetFunction(CUfunction *hfunc, CUmodule hmod, const char *name){
-    printf("want to get function %s\n",name);
-    if(!cudaInitialized) // test whether API is initialized
-        return CUDA_ERROR_NOT_INITIALIZED;
-    if(contexts.empty()) // test if any context is active
-        return CUDA_ERROR_INVALID_CONTEXT;
-    if(hfunc == nullptr || name == nullptr)
-        return CUDA_ERROR_INVALID_VALUE;
-    try {
-        *hfunc = new CUfunc_st(hmod, name);
-    } catch (const std::runtime_error& re) {
-        return CUDA_ERROR_NOT_FOUND;
+    CUresult res = hasValidContext();
+    if(res == CUDA_SUCCESS){
+        if(hfunc == nullptr || name == nullptr)
+            return CUDA_ERROR_INVALID_VALUE;
+        try {
+            *hfunc = new CUfunc_st(hmod, name);
+        } catch (const std::runtime_error& re) {
+            return CUDA_ERROR_NOT_FOUND;
+        }
     }
-    return CUDA_SUCCESS;
+    return res;
 }
-//CUresult cuModuleUnload ( CUmodule hmod );
+//CUresult cuModuleUnload ( CUmodule hmod ); // TODO!!!
 
 #endif // MODULE_IMPL

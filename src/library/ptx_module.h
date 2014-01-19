@@ -11,7 +11,7 @@ typedef dim3 threadIdx_t;
 class Module;
 
 /**
- * @brief Object of this class gives acces to one kernel from given module.
+ * @brief Object of this class gives access to one kernel from given module.
  * If you want to invoke one selected function (kernel) from some module
  * (.ptx) this is solution you are looking for. You have to provide module
  * and name of kernel. After that you can invoke kernel as many times as you
@@ -30,14 +30,18 @@ public:
     Function(const Module& module, const char *name);
 
     /**
+     * Call selected method from .ptx module. Each thread corresponding to
+     * CUDA thread should call this function in order to execute kernel code.
      * @param args Kernel parameters as provided in cuLaunchKernel
+     * @param blockIdx Block id of calling thread
+     * @param threadIdx Thread id of calling thread
      */
     void run(void* args[],
              blockIdx_t blockIdx,
              threadIdx_t threadIdx);
 
 private:
-    const Module& module;
+    const Module &module;
     void (*const _run)(void* args[],
                        gridDim_t gridDim,
                        blockDim_t blockDim,
@@ -48,7 +52,7 @@ private:
 /**
  * @brief Object of this class gives access to one module (.ptx).
  * If you want general access to given module you should use this class.
- * You have to provide module name (witch .ptx extension). Before invoking
+ * You have to provide module name (with .ptx extension). Before invoking
  * kernel you have to do appropriate initialization. You have to invoke
  * initializeModule() once before any other function in this class. You have
  * to invoke initializeBlock() before running (@see Function::run()) kernel

@@ -7,32 +7,36 @@
 
 #include "dim3.h"
 #include "ptx_module.h"
+#include "cuda_result.h"
 
-// ------ configuration ------
-
-const unsigned int NUMBER_OF_DEVICES = 1;
-const dim3 MAX_GRID_DIMENSIONS = doDim3(65535,65535,65535);
-const dim3 MAX_BLOCK_DIMENSIONS = doDim3(1024,1024,64);
-const unsigned int MAX_NUMBER_OF_BLOCKS = 65535;
-const unsigned int MAX_THREADS_PER_BLOCK = 1024;
-const unsigned int NUMBER_OF_MULTIPROCESSORS = 4; // minimal number of blocks to run simultaneously
-
-const unsigned int MAX_THREADS = NUMBER_OF_MULTIPROCESSORS * MAX_THREADS_PER_BLOCK; // how many threads can run together
-
-
+#include "device_config.h" // get device configuration
 
 /**
- * This class represents device.
+ * How many CPU threads can run together.
+ */
+const unsigned int MAX_THREADS = NUMBER_OF_MULTIPROCESSORS * MAX_THREADS_PER_BLOCK;
+
+// -------- class implementation --------
+
+/**
+ * This class represents CpUDA device, which imitates GPU.
  */
 class CUdevice_st{ // additional structure for object representing device
     friend struct CUctx_st;
 
+    // ---------------- data ----------------
+
+    // thread executing device tasks, especially kernel launches
     std::thread deviceThread;
+
+    // parameters of prepared kernel launch
     Module *module;
     Function *kernel;
     void **args;
     dim3 gridDim;
     dim3 blockDim;
+
+    // -------------- methods ---------------
 
     bool checkGridSize(const dim3 &gridDim){
         return checkDimensionsInRange(gridDim, MAX_GRID_DIMENSIONS) && checkTotalSizeInLimit(gridDim, MAX_NUMBER_OF_BLOCKS);
@@ -43,20 +47,20 @@ class CUdevice_st{ // additional structure for object representing device
     }
 
     /**
-     * This code is run by block runners. Every runner process sequentially given range of blocks.
+     * This code is run by block runners. Every runner processes sequentially given range of blocks.
      * For each block it runs simultaneously all block threads.
      */
     void launchBlocks(std::vector<dim3> *blocks){
         int blockSize = totalSize(blockDim);
         std::vector<std::thread> threads(blockSize);
 
-        for(auto &blockIdx : *blocks){
+        for(auto &blockIdx : *blocks){ // process blocks sequentially
             module->initializeBlock(blockIdx);
             int t_id = 0;
             for(int tz = 0; tz < blockDim.z; tz++) for(int ty = 0; ty < blockDim.y; ty++) for(int tx = 0; tx < blockDim.x; tx++){
                 threads[t_id++] = std::thread(&Function::run, kernel, args, blockIdx, doDim3(tx,ty,tz));
             }
-            for (auto &t : threads) { // wait until this block will finish
+            for (auto &t : threads) { // wait until all threads of this block will finish
                 t.join();
             }
             module->releaseBlock(blockIdx);
@@ -67,7 +71,6 @@ class CUdevice_st{ // additional structure for object representing device
      * This code is run by device thread. It simulates CUDA kernel execution.
      */
     void runKernel(){
-        printf(">>>>> RUN KERNEL!\n");
         module->initializeModule(gridDim, blockDim);
 
         dim_t gridSize = totalSize(gridDim);
@@ -77,10 +80,8 @@ class CUdevice_st{ // additional structure for object representing device
         int perThread = gridSize/concurrent;
         int rem = gridSize%concurrent;
 
+        // distribute block ids per block runner
         std::vector<std::vector<dim3>> blocksDistribution(concurrent);
-        blocksDistribution.reserve(gridSize);
-
-        // distribute ids per block runner
         int num = 0;
         for(int bz = 0; bz < gridDim.z; bz++) for(int by = 0; by < gridDim.y; by++) for(int bx = 0; bx < gridDim.x; bx++){
             blocksDistribution[num].push_back(doDim3(bx,by,bz));
@@ -89,6 +90,7 @@ class CUdevice_st{ // additional structure for object representing device
                 rem--;
             }
         }
+        // run block runners
         std::vector<std::thread> blockRunners;
         for(int i=0; i<concurrent; i++){
             blockRunners.push_back(std::thread(&CUdevice_st::launchBlocks, this, &blocksDistribution[i]));
@@ -96,10 +98,12 @@ class CUdevice_st{ // additional structure for object representing device
         for (auto &runner : blockRunners) { // wait until all block runners will finish
             runner.join();
         }
+
         module->cleanupModule();
-        printf("<<<<< END KERNEL!\n");
     }
+
 public:
+
     /**
      * Simple check if device (its thread) is running.
      */
@@ -108,7 +112,7 @@ public:
     }
 
     /**
-     * Prepares device represented by this object to launch given kernel. Device check if it is able
+     * Prepares device represented by this object to launch given kernel. Device checks if it is able
      * to execute this kernel. This method must be called before launching kernel via launchKernel().
      */
     CUresult prepareDeviceToLaunch(Module *m, Function *f, void **args, const dim3 &gridDim, const dim3 &blockDim){
@@ -133,20 +137,53 @@ public:
     }
 };
 
+typedef int CUdevice;
 
+// ---------------- data ----------------
 
+CUdevice_st *devices; // table with devices
 
-extern CUdevice_st *devices; // table with devices
-extern int numOfAvailableDevices; // number of available devices
-extern bool cudaInitialized;
+bool cudaInitialized = false; // flag if library was initialized
+int numOfAvailableDevices; // number of available devices, set at initialization
 
+// ----------- helper methods -----------
 
-int internalDeviceGetCount(){
+/**
+ * Returns this library state - initialized or not.
+ */
+bool isCudaInitialized(){
+    return cudaInitialized;
+}
+
+/**
+ * Recognize how many devices should be available. Simply returns NUMBER_OF_DEVICES
+ * from configuration. If this number should be recognized in another way - change
+ * this method.
+ */
+int internalDeviceGetCount(){ // if number of devices should be recognized
     return NUMBER_OF_DEVICES;
 }
 
-// initialization
 /**
+ * Tests if given ordinal corresponds to one of devices. Call only when initialized.
+ */
+bool isDeviceOrdinalInRange(int ordinal){
+    return (0 <= ordinal) && (ordinal < numOfAvailableDevices);
+}
+
+/**
+ * Returns reference to device specified by given number. Call only when initialized,
+ * with correct device number. Otherwise there would be an error.
+ */
+CUdevice_st& getDevice(int ordinal){
+    return devices[ordinal];
+}
+
+// --------- API implementation ---------
+
+/**
+ * From API reference:
+ *
  * \brief Initialize the CUDA driver API
  *
  * Flags parameter should be 0. This function should be called before any other functions from library.
@@ -157,15 +194,10 @@ CUresult cuInit(unsigned int Flags){
         return CUDA_SUCCESS;
     if (Flags != 0)
         return CUDA_ERROR_INVALID_VALUE;
-
     numOfAvailableDevices = internalDeviceGetCount(); // get number of available devices
     devices = new CUdevice_st[numOfAvailableDevices]; // initialize structures representing them
-    cudaInitialized = true;
+    cudaInitialized = true; // set flag to initialized
     return CUDA_SUCCESS;
-}
-
-bool isDeviceOrdinalInRange(int ordinal){
-    return (0 <= ordinal) && (ordinal < numOfAvailableDevices);
 }
 
 CUresult cuDeviceGet(CUdevice *device, int ordinal){
