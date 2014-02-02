@@ -6,6 +6,7 @@
 
 #include "context_impl.h"
 #include "cuda_result.h"
+using namespace cpuda;
 
 #if defined(__x86_64) || defined(AMD64) || defined(_M_AMD64)
 typedef unsigned long long CUdeviceptr;

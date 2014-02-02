@@ -1,6 +1,8 @@
 #ifndef DIM3_H
 #define DIM3_H
 
+namespace cpuda{
+
 typedef unsigned int dim_t;
 
 struct dim3{
@@ -27,6 +29,8 @@ bool checkTotalSizeInLimit(const dim3 &dim, const dim_t &limit){
     unsigned long long bound = limit;
     unsigned long long xy = dim.x; xy *= dim.y; // ULL in order to hold product of two UI
     return (xy <= bound) && (xy*dim.z <= bound); // two tests: x*y*z can overlap ULL
+}
+
 }
 
 #endif // DIM3_H

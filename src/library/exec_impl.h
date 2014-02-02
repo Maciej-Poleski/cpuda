@@ -6,6 +6,7 @@
 #include "context_impl.h"
 #include "device_impl.h"
 #include "cuda_result.h"
+using namespace cpuda;
 
 // --------- API implementation ---------
 

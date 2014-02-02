@@ -10,11 +10,7 @@
 #include "cuda_result.h"
 
 #include "device_config.h" // get device configuration
-
-/**
- * How many CPU threads can run together.
- */
-const unsigned int MAX_THREADS = NUMBER_OF_MULTIPROCESSORS * MAX_THREADS_PER_BLOCK;
+using namespace cpuda;
 
 // -------- class implementation --------
 
@@ -71,12 +67,12 @@ class CUdevice_st{ // additional structure for object representing device
      * This code is run by device thread. It simulates CUDA kernel execution.
      */
     void runKernel(){
-        module->initializeModule(gridDim, blockDim);
+        module->initializeModule(gridDim, blockDim, WARP_SIZE);
 
         dim_t gridSize = totalSize(gridDim);
         dim_t blockSize = totalSize(blockDim);
 
-        int concurrent = std::min(gridSize, MAX_THREADS/blockSize);
+        int concurrent = NUMBER_OF_MULTIPROCESSORS;
         int perThread = gridSize/concurrent;
         int rem = gridSize%concurrent;
 

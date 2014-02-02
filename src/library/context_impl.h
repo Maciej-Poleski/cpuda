@@ -5,6 +5,7 @@
 
 #include "device_impl.h"
 #include "cuda_result.h"
+using namespace cpuda;
 
 // -------- class implementation --------
 

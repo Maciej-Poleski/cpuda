@@ -4,3 +4,4 @@ other
 *.pyc
 *.cu.cc
 *.ptx
+*.o

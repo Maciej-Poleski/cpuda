@@ -2,6 +2,7 @@
 #define PTX_MODULE_H
 
 #include "dim3.h"
+using namespace cpuda;
 
 typedef dim3 gridDim_t;
 typedef dim3 blockDim_t;
@@ -83,8 +84,9 @@ public:
      * kernel invocation. Module (.ptx) initialize memory, dimensions are remembered.
      * @param gridDim gridDim as provided to kernel
      * @param blockDim blockDim as provided to kernel
+     * @param warp_size number of threads to run concurrent inside one block
      */
-    void initializeModule(gridDim_t gridDim, blockDim_t blockDim);
+    void initializeModule(gridDim_t gridDim, blockDim_t blockDim, int warp_size);
 
     /**
      * Releases any resources associated witch this module. Must be invoked
@@ -110,7 +112,7 @@ public:
 
 private:
     void* const _moduleHandle;
-    void (*const _kernel_global_init)(gridDim_t gridDim);
+    void (*const _kernel_global_init)(gridDim_t gridDim, int throat_size);
     void (*const _kernel_global_deinit)();
     void (*const _kernel_block_init)(gridDim_t gridDim, blockIdx_t blockIdx);
     void (*const _kernel_block_deinit)(gridDim_t gridDim, blockIdx_t blockIdx);
@@ -150,11 +152,11 @@ Module::~Module()
         std::cerr << dlerror() << '\n';
 }
 
-void Module::initializeModule(gridDim_t gridDim, blockDim_t blockDim)
+void Module::initializeModule(gridDim_t gridDim, blockDim_t blockDim, int warp_size)
 {
     this->gridDim = gridDim;
     this->blockDim = blockDim;
-    _kernel_global_init(gridDim);
+    _kernel_global_init(gridDim, warp_size);
 }
 
 void Module::cleanupModule()
