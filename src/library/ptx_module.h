@@ -112,7 +112,7 @@ public:
 
 private:
     void* const _moduleHandle;
-    void (*const _kernel_global_init)(gridDim_t gridDim, int throat_size);
+    void (*const _kernel_global_init)(gridDim_t gridDim, blockDim_t blockDim, int throat_size);
     void (*const _kernel_global_deinit)();
     void (*const _kernel_block_init)(gridDim_t gridDim, blockIdx_t blockIdx);
     void (*const _kernel_block_deinit)(gridDim_t gridDim, blockIdx_t blockIdx);
@@ -156,7 +156,7 @@ void Module::initializeModule(gridDim_t gridDim, blockDim_t blockDim, int warp_s
 {
     this->gridDim = gridDim;
     this->blockDim = blockDim;
-    _kernel_global_init(gridDim, warp_size);
+    _kernel_global_init(gridDim, blockDim, warp_size);
 }
 
 void Module::cleanupModule()

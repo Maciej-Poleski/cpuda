@@ -58,9 +58,10 @@ code += '// ' + 53 * '-' + '\n'
 
 code += ('\n#include <type_traits>\n'
          '\n'
-         'extern "C" void _kernel_global_init(detail::gridDim_t gridDim, int throat_size)\n'
+         'extern "C" void _kernel_global_init(detail::gridDim_t gridDim, detail::blockDim_t blockDim, int throat_size)\n'
          '{\n'
          '\tdetail::THROAT_SIZE = throat_size;\n'
+         '\tdetail::BLOCK_SIZE = detail::grid_flat_size(blockDim);\n'
          '\tdetail::blocks_synchronization = new detail::throat_sync*[detail::grid_flat_size(gridDim)];\n'
          )
 
@@ -79,7 +80,7 @@ for fun in shared_objects:
 code += '}\n\n'
 
 code += ('extern "C" void _kernel_block_init(detail::gridDim_t gridDim, detail::blockIdx_t blockIdx)\n'
-         '{\n\tdetail::blocks_synchronization[detail::block_flat_idx(gridDim, blockIdx)] = new detail::throat_sync();\n')
+         '{\n\tdetail::blocks_synchronization[detail::block_flat_idx(gridDim, blockIdx)] = new detail::throat_sync(detail::BLOCK_SIZE);\n')
 for fun in shared_objects:
     code += ('\tusing {name}_t = std::remove_pointer<decltype(detail::shared::{name})>::type;\n'
              '\tdetail::shared::{name}[detail::block_flat_idx(gridDim, blockIdx)] = new std::remove_pointer<{name}_t>::type;\n'
@@ -104,7 +105,6 @@ for fun in kernels:
              '\t::blockIdx = blockIdx;\n'
              '\t::threadIdx = threadIdx;\n'
              '\tdetail::throat_sync &block_sync =  *detail::blocks_synchronization[detail::block_flat_idx(gridDim, blockIdx)];\n'
-             '\tblock_sync.init(detail::grid_flat_size(blockDim));\n'
              '\tblock_sync.start();\n'
              '\t{name}(').format(name=fun)
     for idx in range(len(kernels[fun])):
