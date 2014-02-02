@@ -50,14 +50,19 @@ for fun in shared_objects:
     code += '}}** {};\n'.format(fun)
 
 code += ('}\n'
-         '};\n')
+         '};\n\n')
 
+code += '// ' + 20 * '-' + ' KERNEL CODE ' + 20 * '-' + '\n'
 code += result
+code += '// ' + 53 * '-' + '\n'
 
 code += ('\n#include <type_traits>\n'
          '\n'
-         'extern "C" void _kernel_global_init(detail::gridDim_t gridDim)\n'
-         '{')
+         'extern "C" void _kernel_global_init(detail::gridDim_t gridDim, int throat_size)\n'
+         '{\n'
+         '\tdetail::THROAT_SIZE = throat_size;\n'
+         '\tdetail::blocks_synchronization = new detail::throat_sync*[detail::grid_flat_size(gridDim)];\n'
+         )
 
 for fun in shared_objects:
     code += ('\n'
@@ -66,15 +71,15 @@ for fun in shared_objects:
 
 code += '}\n\n'
 
-code += ("extern \"C\" void _kernel_global_deinit()\n"
-         "{\n")
+code += ('extern "C" void _kernel_global_deinit()\n'
+         '{\n\tdelete [] detail::blocks_synchronization;\n')
 for fun in shared_objects:
     code += '\tdelete [] detail::shared::{name};\n'.format(name=fun)
 
 code += '}\n\n'
 
 code += ('extern "C" void _kernel_block_init(detail::gridDim_t gridDim, detail::blockIdx_t blockIdx)\n'
-         '{\n')
+         '{\n\tdetail::blocks_synchronization[detail::block_flat_idx(gridDim, blockIdx)] = new detail::throat_sync();\n')
 for fun in shared_objects:
     code += ('\tusing {name}_t = std::remove_pointer<decltype(detail::shared::{name})>::type;\n'
              '\tdetail::shared::{name}[detail::block_flat_idx(gridDim, blockIdx)] = new std::remove_pointer<{name}_t>::type;\n'
@@ -82,7 +87,7 @@ for fun in shared_objects:
 code += '}\n\n'
 
 code += ('extern "C" void _kernel_block_deinit(detail::gridDim_t gridDim, detail::blockIdx_t blockIdx)\n'
-         '{\n')
+         '{\n\tdelete detail::blocks_synchronization[detail::block_flat_idx(gridDim, blockIdx)];\n')
 for fun in shared_objects:
     code += '\tdelete detail::shared::{name}[detail::block_flat_idx(gridDim, blockIdx)];\n'.format(name=fun)
 code += '}\n\n'
@@ -98,11 +103,15 @@ for fun in kernels:
              '\t::blockDim = blockDim;\n'
              '\t::blockIdx = blockIdx;\n'
              '\t::threadIdx = threadIdx;\n'
+             '\tdetail::throat_sync &block_sync =  *detail::blocks_synchronization[detail::block_flat_idx(gridDim, blockIdx)];\n'
+             '\tblock_sync.init(detail::grid_flat_size(blockDim));\n'
+             '\tblock_sync.start();\n'
              '\t{name}(').format(name=fun)
     for idx in range(len(kernels[fun])):
         code += '\n\t\t*reinterpret_cast<{type}*>(args[{idx}]),'.format(type=kernels[fun][idx], idx=idx)
     code = code[:-1]
     code += ('\n\t);\n'
+             '\tblock_sync.end();\n'
              '}}\n'
              '\n').format(name=fun)
 

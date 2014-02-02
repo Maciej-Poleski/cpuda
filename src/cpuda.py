@@ -20,7 +20,7 @@ def print_usage():
 
 # ---------- File processing ----------
 
-gpp_cmd_str = "g++ -std=c++0x -I {0} -o {1} {2}" # in order to use provide: cuda.h directory, output name, file to compile
+gpp_cmd_str = "g++ -std=c++0x -I {0} -o {1} {2} -Wl,--stack,100000" # in order to use provide: cuda.h directory, output name, file to compile
 lib_dir = "library" # name of directory with cuda.h library (relative to cpuda directory)
 
 cpuda_dir = os.path.dirname(os.path.realpath(__file__)) # load cpuda directory path
@@ -49,7 +49,7 @@ def process_file(in_file):
         process_cu(in_file)
     else:
         print "Bad extension:", ext
-        print "CpUDA only process .cpp and .cu files."
+        print "CpUDA only processes .cpp and .cu files."
 
 # ----------- Program start -----------
 
