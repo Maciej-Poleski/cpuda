@@ -41,7 +41,8 @@ class Parser(object):
                     parsedArgs=[]
                     for arg in args:
                         am=singleDeclarationRe.match(arg)
-                        parsedArgs+=[am.group(1).strip()]
+                        if am:
+                            parsedArgs+=[am.group(1).strip()]
                     result+=line
                     self.k(function,parsedArgs)
                     continue

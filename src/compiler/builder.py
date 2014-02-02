@@ -109,7 +109,8 @@ for fun in kernels:
              '\t{name}(').format(name=fun)
     for idx in range(len(kernels[fun])):
         code += '\n\t\t*reinterpret_cast<{type}*>(args[{idx}]),'.format(type=kernels[fun][idx], idx=idx)
-    code = code[:-1]
+    if len(kernels[fun])>0:
+        code = code[:-1]
     code += ('\n\t);\n'
              '\tblock_sync.end();\n'
              '}}\n'
