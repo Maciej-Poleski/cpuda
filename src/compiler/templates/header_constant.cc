@@ -47,6 +47,7 @@ namespace detail
 namespace detail
 {
     int THROAT_SIZE;
+    int BLOCK_SIZE;
 
     class throat_sync{
         int live;
@@ -82,7 +83,7 @@ namespace detail
         /**
          * Initialize throat synchronization, specifying number of threads which will run under the throat.
          */
-        void init(int threads_num){
+        throat_sync(int threads_num){
             live = threads_num;
             in_throat = 0;
             waiting = 0;

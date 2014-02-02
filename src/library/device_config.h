@@ -39,7 +39,7 @@ const unsigned int MAX_THREADS_PER_BLOCK = 1024;
  * objects used per kernel would be NUMBER_OF_MULTIPROCESSORS * block size (so the
  * maximal possible value is NUMBER_OF_MULTIPROCESSORS * MAX_THREADS_PER_BLOCK).
  */
-const unsigned int NUMBER_OF_MULTIPROCESSORS = 1;
+const unsigned int NUMBER_OF_MULTIPROCESSORS = 8;
 
 /**
  * Number of threads running simultaneously inside one block. Each block creates as
