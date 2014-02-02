@@ -10,7 +10,7 @@ extern "C"
         return 10;
     }
 
-    __global__ void fun2(char argCharArray[],int argInt)
+    __global__ void fun2(char argCharArray [],int argInt)
     {
         __shared__ char tab[12],a,b,* c;
         __shared__ signed int*q[1] , w[2],*e;
