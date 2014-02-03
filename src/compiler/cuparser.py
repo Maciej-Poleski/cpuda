@@ -7,7 +7,7 @@ class Parser(object):
     def set_shared_memory_definition_callback(self, shared_memory_definition_callback):
         self.m = shared_memory_definition_callback
 
-    def parse(self, file):
+    def parse(self, file, callback_object):
         result = ('#define __device__\n'
                   '#define __global__\n'
                   '#define __shared__\n')
@@ -44,7 +44,7 @@ class Parser(object):
                         if am:
                             parsedArgs+=[am.group(1).strip()]
                     result+=line
-                    self.k(function,parsedArgs)
+                    callback_object.report_kernel(function,parsedArgs)
                     continue
                 match=None
                 for match in sharedRe.finditer(seen):
@@ -56,7 +56,7 @@ class Parser(object):
                     args=sm.group(5).split(',')
                     for arg in args:
                         vm=typedNamePartRe.match(arg.strip())
-                        result+=match.group(1)+self.m(function,vm.group(2),typePrefix+vm.group(1).strip()+vm.group(3).strip())
+                        result+=match.group(1)+callback_object.transform_shared_memory_definition(function,vm.group(2),typePrefix+vm.group(1).strip()+vm.group(3).strip())
                     continue
                 result+=line
 
