@@ -14,7 +14,7 @@ class Parser(object):
         deviceFunctionRe=re.compile(r'__device__\s+.*\s+(.*)\(.*\)',re.IGNORECASE)
         globalFunctionRe=re.compile(r'__global__\s+void\s+(.*)\(((.*,)*(.*))\)',re.IGNORECASE)
         sharedRe=re.compile(r'^(\s*)__shared__\s+(.*);',re.IGNORECASE|re.MULTILINE)
-        singleDeclarationRe=re.compile(r'((.*)\W)(\w+)',re.IGNORECASE)
+        singleDeclarationRe=re.compile(r'((.*)\W)(\w+)\s*(\[\])?',re.IGNORECASE)
         sharedMemoryDeclarationRe=re.compile(r'^((unsigned\s+|signed\s+|)(([^*\s])+))((.+,)*.*)$',re.IGNORECASE)
         typedNamePartRe=re.compile(r'^(\W*)(\w*)(.*)$',re.IGNORECASE)
         function=None
@@ -42,7 +42,10 @@ class Parser(object):
                     for arg in args:
                         am=singleDeclarationRe.match(arg)
                         if am:
-                            parsedArgs+=[am.group(1).strip()]
+                            suf=''
+                            if am.group(4):
+                                suf='*'
+                            parsedArgs+=[am.group(1).strip()+suf]
                     result+=line
                     callback_object.report_kernel(function,parsedArgs)
                     continue
