@@ -1,11 +1,9 @@
 #!/usr/bin/python
-# -*- coding: utf-8 -*-
+import sys, os, subprocess
+import settings
+from compiler import builder
 
-import sys
-import os
-import subprocess
-
-# ----------- Program usage -----------
+# ----------- program usage -----------
 
 def print_usage():
     print
@@ -17,46 +15,95 @@ def print_usage():
     print "\tcpuda.py file.cu"
     print "\t\tconvert and compile .cu file to work on cpu"
     print
+    print "\tcpuda.py file.cu.cc"
+    print "\t\tcompile .cu.cc file (result from .cu conversion) to .ptx"
+    print
 
-# ---------- File processing ----------
+# ---------- use settings ----------
 
-gpp_cmd_str = "g++ -std=c++0x -I {0} -o {1} {2} -Wl,--stack,100000" # in order to use provide: cuda.h directory, output name, file to compile
-lib_dir = "library" # name of directory with cuda.h library (relative to cpuda directory)
+# command used to compile .cpp file with access to cpuda cuda.h library
+gpp_cpp_cmd_str = settings.GPP_CPP_CMD
 
-cpuda_dir = os.path.dirname(os.path.realpath(__file__)) # load cpuda directory path
+# command used to check .cu correctness (whether the file is compilable or not)
+gpp_cu_cmd_str = settings.GPP_CU_CMD
+
+# command used to compile .cu.cc file to .ptx file (shared library)
+gpp_ptx_cmd_str = settings.GPP_PTX_CMD
+
+# location of cpuda library directory (cuda.h implementation)
+lib_dir = settings.LIB_DIR
+
+cpuda_dir = os.path.dirname(os.path.realpath(__file__)) # get cpuda directory path
+lib_path = os.path.join(cpuda_dir, lib_dir) # apply to it library relative location
+
+# ---------- specific file processing ----------
 
 # Processes .cpp file - call g++ to compile it including cuda.h directory
 def process_cpp(cpp_file):
     print "CpUDA: processing CPP file"
-    lib_path = os.path.join(cpuda_dir, lib_dir)
     raw_file_name = os.path.splitext(os.path.basename(cpp_file))[0]
-    gpp_cmd = gpp_cmd_str.format(lib_path, raw_file_name, cpp_file)
+    gpp_cmd = gpp_cpp_cmd_str.format(lib_path, raw_file_name, cpp_file)
     print "call:", gpp_cmd
     subprocess.call(gpp_cmd)
 
-# Processes .cu file
+# Determines whether .cu file is compilable - call g++ previously adding minimal header
+def check_cu_correctness(cu_file):
+    file_basename = os.path.basename(cu_file)
+    ptx_file_name = os.path.splitext(file_basename)[0] + ".ptx"
+    cu_cc_file = file_basename + ".cc"
+    code = builder.Builder().generate_to_check(cu_file)
+    with open(cu_cc_file, "w") as output_file:
+        output_file.write(code)
+    return subprocess.call(gpp_cu_cmd_str.format(ptx_file_name, cu_cc_file)) == 0
+
+# Processes .cu file - call builder to generate .cu.cc file than process it
 def process_cu(cu_file):
     print "CpUDA: processing CU file"
-    proc=subprocess.Popen('python builder.py {0}'.format(os.path.abspath(cu_file)),shell=True,cwd='compiler')
-    return proc.wait()
+    print "check .cu correctness:"
+    if check_cu_correctness(cu_file):
+        print "ok"
+        print "generate .cu.cc file with builder:",
+        code = builder.Builder().generate_ptx_code(cu_file)
+        cu_cc_file = os.path.basename(cu_file) + ".cc" # get file name (without directories) and add .cc extension
+        with open(cu_cc_file, "w") as output_file:
+            output_file.write(code)
+        print "result saved in " + cu_cc_file
+        print
+        process_cu_cc(cu_cc_file)
+    else:
+        print "file is not valid, correct errors"
+
+# Processes .cu.cc file - call g++ to compile it to .ptx file (shared library)
+def process_cu_cc(cu_cc_file):
+    print "CpUDA: processing CU.CC file"
+    raw_file_name = os.path.splitext(os.path.basename(cu_cc_file))[0] # remove .cc and directories prefix
+    ptx_file_name = os.path.splitext(raw_file_name)[0] + ".ptx" # then remove .cu and add .ptx extension
+    gpp_ptx_cmd = gpp_ptx_cmd_str.format(ptx_file_name, cu_cc_file)
+    print "call:", gpp_ptx_cmd
+    subprocess.call(gpp_ptx_cmd)
+
+# ---------- general file processing ----------
 
 # Check file extension and call appropriate function
 def process_file(in_file):
-    ext = os.path.splitext(in_file)[1]
+    (file_name, ext) = os.path.splitext(in_file)
     if ext == ".cpp":
         process_cpp(in_file)
     elif ext == ".cu":
         process_cu(in_file)
+    elif ext == ".cc" and os.path.splitext(file_name)[1] == ".cu":
+        process_cu_cc(in_file)
     else:
         print "Bad extension:", ext
-        print "CpUDA only processes .cpp and .cu files."
+        print "CpUDA only processes .cpp, .cu and .cu.cc files."
 
-# ----------- Program start -----------
+# ----------- program start -----------
 
-# interpreting command line
-if (len(sys.argv) == 1):
-    print_usage()
-elif (len(sys.argv) == 2):
-    process_file(sys.argv[1])
-else:
-    print "Provide exactly one file."
+if __name__ == "__main__":
+    # interpreting command line
+    if (len(sys.argv) == 1):
+        print_usage()
+    elif (len(sys.argv) == 2):
+        process_file(sys.argv[1])
+    else:
+        print "Provide exactly one file."

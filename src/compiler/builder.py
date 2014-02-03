@@ -6,6 +6,8 @@ import subprocess
 
 from cuparser import Parser
 
+compiler_dir = os.path.dirname(os.path.realpath(__file__)) # get compiler directory path
+
 # ---------- builder class ----------
 
 class Builder:
@@ -39,8 +41,7 @@ class Builder:
         shared_objects = callbacks.shared_objects
         code = ""
 
-
-        with open(os.path.dirname(os.path.realpath(__file__))+'/templates/header_constant.cc') as f:
+        with open(compiler_dir + '/templates/header_constant.cc') as f:
             code += f.read()
 
         code += ('\nnamespace detail\n'
@@ -119,6 +120,14 @@ class Builder:
                      '\tblock_sync.end();\n'
                      '}}\n'
                      '\n').format(name=fun)
+        return code
+
+    def generate_to_check(self, cu_file):
+        code = ""
+        with open(compiler_dir + '/templates/header_to_check.cc') as f:
+            code += f.read()
+        with open(cu_file) as f:
+            code += f.read()
         return code
 
 # ---------- end of builder class ----------
