@@ -1,5 +1,39 @@
 import re
 
+def aux_parse(file):
+    result=''
+    lineCommentRe=re.compile(r'//.*',re.IGNORECASE)
+    blockCommentFullRe=re.compile(r'/\*.*?\*/',re.IGNORECASE)
+    blockCommentBeginRe=re.compile(r'/\*',re.IGNORECASE)
+    blockCommentEndRe=re.compile(r'\*/',re.IGNORECASE)
+    inBlockComment=False
+    for line in file:
+        while True:
+            if not inBlockComment:
+                m=lineCommentRe.search(line)
+                if m:
+                    line=line[:m.start()]+'\n'
+                    continue
+                m=blockCommentFullRe.search(line)
+                if m:
+                    line=line[:m.start()]+line[m.end():]
+                    continue
+                m=blockCommentBeginRe.search(line)
+                if m:
+                    line=line[:m.start()]
+                    inBlockComment=True
+                    # fall through
+            else:
+                m=blockCommentEndRe.search(line)
+                if m:
+                    inBlockComment=False
+                    line=line[m.end():]
+                    continue
+                line=''
+            break
+        result+=line
+    return result
+
 class Parser(object):
     def set_kernel_declaration_callback(self, kernel_declaration_callback):
         self.k = kernel_declaration_callback
@@ -21,7 +55,9 @@ class Parser(object):
         with open(file) as f:
             seen=''
             oldEnd=0
-            for line in f:
+            simplifiedInput=aux_parse(f)
+            for line in simplifiedInput.split('\n'):
+                line+='\n'
                 seen+=line
                 match=None
                 for match in deviceFunctionRe.finditer(seen):

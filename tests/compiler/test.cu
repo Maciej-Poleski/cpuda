@@ -1,6 +1,14 @@
 extern "C"
 {
 
+//    __device__ int fun5(int* argIntStar, float argFloat)
+//    {
+//        __shared__ int tab[123],temp,* ptr,arr[2];
+//        ptr=&tab[5];
+//        tab[5]=argIntStar[threadIdx.x];
+//        argIntStar[6]=*ptr;
+//        return 10;
+//    }
     __device__ int fun1(int* argIntStar, float argFloat)
     {
         __shared__ int tab[123],temp,* ptr,arr[2];
@@ -22,4 +30,16 @@ extern "C"
 
     __device__ int*fun4(){ return 0;}
 
+    /*__device__ int fun1(int* argIntStar, float argFloat)
+    {
+        __shared__ int tab[123],temp,* ptr,arr[2];
+        ptr=&tab[5];/*
+        tab[5]=argIntStar[threadIdx.x];
+        argIntStar[6]=*ptr;
+        return 10;
+    }*/
+
+    __device__ void fun5(){
+        int /*asdf /* */a/**/=5; ///*/*asdf
+    }
 }
