@@ -14,14 +14,15 @@ struct CUctx_st{
     std::thread *task;
 
     CUctx_st(CUdevice device): dev(device){
-        task == nullptr;
+        task = nullptr;
     }
     bool isTaskRunning(){
         return (task != nullptr) && task->joinable();
     }
     void waitForTask(){
-        if(isTaskRunning())
+        if(isTaskRunning()){
             task->join();
+        }
     }
     void setTaskToDevice(){
         task = &getDevice(dev).deviceThread;
